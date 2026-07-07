@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import torch
 
-from nightfall.core.coreset import CoresetConfig, GreedyCoresetSampler
-from nightfall.core.feature_extractor import ExtractorConfig, PatchFeatureExtractor
-from nightfall.core.memory_bank import MemoryBank, MemoryBankConfig, ScoringResult
-from nightfall.core.preprocessing import ImagePreprocessor, PreprocessConfig
+from core.coreset import CoresetConfig, GreedyCoresetSampler
+from core.feature_extractor import ExtractorConfig, PatchFeatureExtractor
+from core.memory_bank import MemoryBank, MemoryBankConfig, ScoringResult
+from core.preprocessing import ImagePreprocessor, PreprocessConfig
 
 
 class PatchCore:
