@@ -18,13 +18,18 @@ dev = ["pytest>=7.4", "pytest-cov>=4.1", "black>=23.0", "ruff>=0.1"]
 serving = ["grpcio>=1.60", "grpcio-tools>=1.60", "fastapi>=0.109", "uvicorn>=0.27"]
 quantize = ["onnx>=1.15", "onnxruntime>=1.16"]
 observability = ["prometheus-client>=0.19"]
+# anomalib is used ONLY as a data-fetching utility (its MVTecAD datamodule
+# handles the download + folder layout) -- NOT as the modeling library.
+# The actual PatchCore algorithm is hand-rolled in nightfall.core.
+data = ["anomalib>=1.0"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["core", "eval"]
+where = ["."]
+include = ["core*", "eval*", "quantize*", "serving*", "observability*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

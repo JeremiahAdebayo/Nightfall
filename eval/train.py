@@ -31,8 +31,8 @@ from pathlib import Path
 
 import torch
 
-from nightfall.core.patchcore import PatchCore
-from nightfall.core.memory_bank import MemoryBank
+from core.patchcore import PatchCore
+from core.memory_bank import MemoryBank
 
 ALL_MVTEC_CATEGORIES = [
     "bottle", "cable", "capsule", "carpet", "grid", "hazelnut",
