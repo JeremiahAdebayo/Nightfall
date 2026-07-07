@@ -21,7 +21,9 @@ observability = ["prometheus-client>=0.19"]
 # anomalib is used ONLY as a data-fetching utility (its MVTecAD datamodule
 # handles the download + folder layout) -- NOT as the modeling library.
 # The actual PatchCore algorithm is hand-rolled in nightfall.core.
-data = ["anomalib>=1.0"]
+# `datasets` backs the HuggingFace mirror fallback used when anomalib's
+# download fails (a known intermittent issue as of early 2026).
+data = ["anomalib>=1.0", "datasets>=2.16"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

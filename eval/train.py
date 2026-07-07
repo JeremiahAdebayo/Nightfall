@@ -73,31 +73,81 @@ def already_trained(output_dir: Path, category: str) -> bool:
     )
 
 
+def _download_via_huggingface_mirror(data_root: Path, category: str) -> None:
+    """
+    Fallback for when anomalib's MVTec download 404s (a documented,
+    intermittent issue with the official endpoint as of early 2026).
+    Pulls the same category from the community HuggingFace mirror
+    TheoM55/mvtec_all_objects_split and writes it into the same on-disk
+    layout ensure_mvtec_downloaded() expects (<category>/train/good/*.png,
+    <category>/test/<defect_type>/*.png), so train_category() doesn't need
+    to know which source actually provided the data.
+    """
+    from datasets import load_dataset
+
+    category_root = data_root / category
+    train_dir = category_root / "train" / "good"
+    train_dir.mkdir(parents=True, exist_ok=True)
+
+    train_ds = load_dataset(
+        "TheoM55/mvtec_all_objects_split", split=f"{category}.train"
+    )
+    for i, sample in enumerate(train_ds):
+        sample["image_path"].save(train_dir / f"{i:03d}.png")
+
+    # Test split too, organized by defect type -- not needed for fit(),
+    # but the eval harness (Phase 2) will need it, so fetch it now while
+    # we're already here rather than requiring a second download pass.
+    test_ds = load_dataset(
+        "TheoM55/mvtec_all_objects_split", split=f"{category}.test"
+    )
+    counts: dict[str, int] = {}
+    for sample in test_ds:
+        defect = sample["defect"]
+        counts[defect] = counts.get(defect, 0) + 1
+        idx = counts[defect]
+        test_dir = category_root / "test" / defect
+        test_dir.mkdir(parents=True, exist_ok=True)
+        sample["image_path"].save(test_dir / f"{idx:03d}.png")
+
+
 def ensure_mvtec_downloaded(data_root: Path, category: str) -> None:
     """
-    Downloads and extracts one MVTec AD category using anomalib's MVTecAD
-    datamodule, which handles the fetch + folder layout automatically --
-    no manual download link required. A no-op if the category's data
-    already exists on disk.
+    Downloads and extracts one MVTec AD category, preferring anomalib's
+    MVTecAD datamodule (the documented, no-registration-link path), and
+    falling back to a HuggingFace mirror if anomalib's download fails --
+    which it does intermittently as of early 2026, per a known upstream
+    issue with the official MVTec endpoint. A no-op if the category's
+    data already exists on disk, regardless of which path fetched it.
 
     We use anomalib here purely as a data-fetching utility (it already
     knows the correct MVTec folder structure and download source); the
     actual PatchCore algorithm is our own hand-rolled implementation in
     nightfall.core, not anomalib's.
-
-    Note: the official MVTec download endpoint has occasionally returned
-    404s (as of early 2026). If prepare_data() fails, fall back to the
-    HuggingFace mirror at TheoM55/mvtec_all_objects_split, extracted into
-    the same <data_root>/<category>/ layout by hand.
     """
-    from anomalib.data import MVTecAD as AnomalibMVTecAD
-
     category_dir = data_root / category / "train" / "good"
     if category_dir.exists() and any(category_dir.glob("*.png")):
-        return  # already downloaded
+        return  # already downloaded, regardless of source
 
-    datamodule = AnomalibMVTecAD(root=str(data_root), category=category)
-    datamodule.prepare_data()
+    try:
+        from anomalib.data import MVTecAD as AnomalibMVTecAD
+
+        datamodule = AnomalibMVTecAD(root=str(data_root), category=category)
+        datamodule.prepare_data()
+
+        # anomalib can fail silently past this point (e.g. write a
+        # directory but no images) so verify the expected files actually
+        # landed before declaring success -- don't just trust that
+        # prepare_data() not raising means we have real data.
+        if not (category_dir.exists() and any(category_dir.glob("*.png"))):
+            raise RuntimeError("anomalib prepare_data() completed but no images found")
+
+    except Exception as e:
+        print(
+            f"[{category}] anomalib download failed ({e}); "
+            f"falling back to HuggingFace mirror TheoM55/mvtec_all_objects_split"
+        )
+        _download_via_huggingface_mirror(data_root, category)
 
 
 def train_category(
