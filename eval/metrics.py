@@ -139,5 +139,5 @@ def compute_pro_score(
     fpr_clipped = fpr_sorted[mask]
     pro_clipped = pro_sorted[mask]
 
-    area = np.trapz(pro_clipped, fpr_clipped)
+    area = np.trapezoid(pro_clipped, fpr_clipped)
     return float(area / max_fpr)
