@@ -19,12 +19,12 @@ import torch
 from core.patchcore import PatchCore
 from core.memory_bank import MemoryBank
 from eval.harness import EvalHarness
-from eval.data_loader import load_category_test_data
+from eval.dataloader import load_category_test_data
 
 # Reused from train_all_categories.py's convention rather than
 # duplicated by hand, so the category list can't silently drift between
 # training and eval.
-from train_all_categories import ALL_MVTEC_CATEGORIES, checkpoint_path
+from train import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 
 def main():
