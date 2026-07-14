@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package nightfall;
+
+// Nightfall anomaly detection inference service.
+//
+// Design note: the client must specify `category` explicitly. PatchCore's
+// kNN-based scoring has no mechanism to infer which category an image
+// belongs to -- there is no classifier in this pipeline, only per-category
+// memory banks. Attempting to auto-detect category by scoring against all
+// banks and picking the lowest-distance one is unreliable (a wrong-category
+// match can spuriously score as "normal") and conflates two different
+// problems: category classification and anomaly detection. A real category
+// classifier would be a separate, additional model -- noted as a possible
+// future addition, not implemented here.
+service NightfallInference {
+  // Score a single image against a specified category's memory bank.
+  rpc DetectAnomaly (AnomalyRequest) returns (AnomalyResponse);
+
+  // List categories the server currently has fitted memory banks for,
+  // so a client can validate its category string before sending images,
+  // or populate a UI dropdown.
+  rpc ListCategories (ListCategoriesRequest) returns (ListCategoriesResponse);
+}
+
+message AnomalyRequest {
+  string category = 1;
+  bytes image_data = 2;       // raw image bytes (PNG/JPEG), not a pre-processed tensor
+  string image_format = 3;    // e.g. "png", "jpg" -- informs decoding
+}
+
+message AnomalyResponse {
+  bool success = 1;
+  string error_message = 2;   // populated only if success == false
+
+  float anomaly_score = 3;    // image-level score; higher = more anomalous
+  bool is_anomalous = 4;      // score thresholded server-side (see ServingConfig)
+  bytes heatmap_png = 5;      // pixel-level anomaly map, encoded as a PNG for direct display
+  float inference_latency_ms = 6;  // this request's actual server-side latency, for client-side monitoring
+}
+
+message ListCategoriesRequest {}
+
+message ListCategoriesResponse {
+  repeated string categories = 1;
+}
