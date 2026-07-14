@@ -25,9 +25,22 @@ from __future__ import annotations
 
 import argparse
 import io
+import sys
 import time
 from concurrent import futures
 from pathlib import Path
+
+# Ensure the repo root (parent of this file's `serving/` directory) is on
+# sys.path, regardless of the working directory this script is invoked
+# from. Without this, `from scripts.train import ...` below fails when
+# run as `python serving/run_grpc_server.py` from the repo root, since
+# Python adds the SCRIPT's own directory (serving/) to sys.path by
+# default, not the repo root -- a different situation from scripts/
+# themselves, which are invoked directly and therefore have the repo
+# root as their natural working directory.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import grpc
 import numpy as np
