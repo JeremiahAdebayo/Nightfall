@@ -33,7 +33,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Ensure the repo root is on sys.path, same reasoning as
+# serving/run_grpc_server.py: this script lives INSIDE scripts/, so
+# Python adds scripts/ itself to sys.path when run directly, not the
+# repo root -- meaning `from scripts.train import ...` (treating scripts
+# as a subpackage of something) fails unless the repo root is explicitly
+# added too.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import numpy as np
 import torch

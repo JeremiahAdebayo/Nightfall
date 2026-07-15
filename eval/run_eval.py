@@ -21,9 +21,8 @@ from core.memory_bank import MemoryBank
 from eval.harness import EvalHarness
 from eval.dataloader import load_category_test_data
 
-# Reused from train_all_categories.py's convention rather than
-# duplicated by hand, so the category list can't silently drift between
-# training and eval.
+# Reused from train.py's convention rather than duplicated by hand, so
+# the category list can't silently drift between training and eval.
 from train import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 
@@ -85,6 +84,24 @@ def main():
 
     print("\n=== Comparison Table (markdown) ===")
     print(harness.comparison_table())
+
+    # Original paper's headline mean numbers (Roth et al., 2021,
+    # arXiv:2106.08265), corroborated across multiple independent
+    # sources citing the same published figures. NOT per-category --
+    # the original paper's per-category breakdown wasn't independently
+    # verified against a clean primary source, so we deliberately don't
+    # fabricate per-category paper numbers in the table above.
+    print("\n=== Paper Reference (Roth et al., 2021) -- mean only ===")
+    print(
+        "Published mean: image_auroc=0.991  pixel_auroc=0.981  pro=0.935 "
+        "(WideResNet50, 1% coreset, 224x224)"
+    )
+    print(
+        "Note: per-category paper numbers are not shown above (marked '--') "
+        "since a clean, independently-verified primary-source breakdown "
+        "wasn't available at write time -- only the well-corroborated mean "
+        "is reported here to avoid presenting unverified figures as fact."
+    )
 
 
 if __name__ == "__main__":
