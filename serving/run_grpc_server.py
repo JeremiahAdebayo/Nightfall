@@ -66,10 +66,25 @@ class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
     unnecessary latency per call.
     """
 
-    def __init__(self, checkpoint_dir: Path, anomaly_threshold: float):
+    def __init__(self, checkpoint_dir: Path, thresholds_path: Path):
         self.model = PatchCore()
-        self.anomaly_threshold = anomaly_threshold
+        self.thresholds = self._load_thresholds(thresholds_path)
         self._load_available_categories(checkpoint_dir)
+
+    @staticmethod
+    def _load_thresholds(thresholds_path: Path) -> dict:
+        if not thresholds_path.exists():
+            raise FileNotFoundError(
+                f"No thresholds file found at {thresholds_path}. Run "
+                f"scripts/calibrate_thresholds.py first -- there is no "
+                f"safe global default threshold, since score scales differ "
+                f"meaningfully per category (confirmed empirically: e.g. "
+                f"bottle's defective-image scores were far below a naive "
+                f"placeholder threshold that happened to work for a "
+                f"different category)."
+            )
+        import json
+        return json.loads(thresholds_path.read_text())
 
     def _load_available_categories(self, checkpoint_dir: Path) -> None:
         loaded = []
@@ -97,15 +112,26 @@ class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
     def DetectAnomaly(self, request, context):
         start = time.perf_counter()
 
-        # Validate category BEFORE doing any image decoding or inference
-        # work -- fail fast and cheaply on a bad request rather than
-        # spend compute on a request we're going to reject anyway.
+        # Validate category has BOTH a fitted bank AND a calibrated
+        # threshold before doing any real work -- a bank without a
+        # threshold entry is a real, checkable inconsistency (e.g. a
+        # category trained after the last calibration run), not
+        # something to silently paper over with a guessed default.
         if request.category not in self.model.banks:
             return nightfall_pb2.AnomalyResponse(
                 success=False,
                 error_message=(
                     f"Unknown category '{request.category}'. "
                     f"Available categories: {list(self.model.banks.keys())}"
+                ),
+            )
+        if request.category not in self.thresholds:
+            return nightfall_pb2.AnomalyResponse(
+                success=False,
+                error_message=(
+                    f"Category '{request.category}' has a fitted memory bank "
+                    f"but no calibrated threshold -- re-run "
+                    f"scripts/calibrate_thresholds.py to include it."
                 ),
             )
 
@@ -122,7 +148,8 @@ class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
             scoring = self.model.predict(request.category, image_tensor)
 
             anomaly_score = float(scoring.image_score.item())
-            is_anomalous = anomaly_score > self.anomaly_threshold
+            threshold = self.thresholds[request.category]["threshold"]
+            is_anomalous = anomaly_score > threshold
 
             heatmap_png = self._encode_heatmap(scoring.pixel_map[0])
 
@@ -166,9 +193,9 @@ class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
         return buf.getvalue()
 
 
-def serve(checkpoint_dir: Path, port: int, anomaly_threshold: float, max_workers: int):
+def serve(checkpoint_dir: Path, thresholds_path: Path, port: int, max_workers: int):
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
-    servicer = NightfallServicer(checkpoint_dir, anomaly_threshold)
+    servicer = NightfallServicer(checkpoint_dir, thresholds_path)
     nightfall_pb2_grpc.add_NightfallInferenceServicer_to_server(servicer, server)
     server.add_insecure_port(f"[::]:{port}")
     server.start()
@@ -179,32 +206,21 @@ def serve(checkpoint_dir: Path, port: int, anomaly_threshold: float, max_workers
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint-dir", type=Path, required=True)
-    parser.add_argument("--port", type=int, default=50051)
     parser.add_argument(
-        "--anomaly-threshold", type=float, default=None,
+        "--thresholds-path", type=Path, required=True,
         help=(
-            "Score threshold above which is_anomalous=True. NOT calibrated "
-            "here -- this needs to be set per-deployment based on the "
-            "actual score distributions observed in Phase 2 eval (see "
-            "scripts/run_eval.py's output for real score ranges per "
-            "category). Passing no value raises an error rather than "
-            "silently using an arbitrary guess."
+            "Path to a JSON file mapping category -> calibrated threshold, "
+            "produced by scripts/calibrate_thresholds.py. Required, no "
+            "default: score scales differ meaningfully per category, so a "
+            "single global threshold silently mislabels some categories "
+            "(confirmed empirically during development)."
         ),
     )
+    parser.add_argument("--port", type=int, default=50051)
     parser.add_argument("--max-workers", type=int, default=4)
     args = parser.parse_args()
 
-    if args.anomaly_threshold is None:
-        raise ValueError(
-            "--anomaly-threshold is required. This is a deliberate design "
-            "choice: PatchCore's raw distance scores have no universal "
-            "'anomalous' cutoff -- the right threshold depends on category "
-            "and the score distributions seen during eval. Pick a value "
-            "informed by Phase 2's actual per-category score ranges rather "
-            "than an arbitrary default that would silently mislabel results."
-        )
-
-    serve(args.checkpoint_dir, args.port, args.anomaly_threshold, args.max_workers)
+    serve(args.checkpoint_dir, args.thresholds_path, args.port, args.max_workers)
 
 
 if __name__ == "__main__":
