@@ -97,14 +97,56 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Nightfall REST Gateway (MVP)", lifespan=lifespan)
 
 
+def _grpc_error_response(e: grpc.aio.AioRpcError) -> JSONResponse:
+    """
+    Shared error-to-HTTP-response mapping for both endpoints, so a gRPC
+    failure (server down, timeout, etc.) always produces the same kind
+    of clean, structured JSON error rather than an unhandled exception
+    turning into a bare 500 with no useful body -- exactly what
+    happened before this helper existed, when list_categories had no
+    error handling at all and a connection failure to the gRPC server
+    propagated as a raw, uninformative 500.
+    """
+    if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
+        return JSONResponse(
+            status_code=504,
+            content={
+                "success": False,
+                "error_message": (
+                    f"Request did not complete within "
+                    f"{_grpc_timeout_seconds}s -- timed out rather than "
+                    f"hanging indefinitely."
+                ),
+            },
+        )
+    if e.code() == grpc.StatusCode.UNAVAILABLE:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "success": False,
+                "error_message": (
+                    f"Cannot reach the gRPC server at {_grpc_target} -- "
+                    f"is it running? ({e.details()})"
+                ),
+            },
+        )
+    return JSONResponse(
+        status_code=502,
+        content={"success": False, "error_message": f"gRPC call failed: {e.details()}"},
+    )
+
+
 @app.get("/categories")
 async def list_categories(request: Request):
     """Lets a client (or a curious human) check available categories
     before sending an image -- mirrors the gRPC ListCategories RPC."""
     stub = request.app.state.grpc_stub
-    response = await stub.ListCategories(
-        nightfall_pb2.ListCategoriesRequest(), timeout=_grpc_timeout_seconds
-    )
+    try:
+        response = await stub.ListCategories(
+            nightfall_pb2.ListCategoriesRequest(), timeout=_grpc_timeout_seconds
+        )
+    except grpc.aio.AioRpcError as e:
+        return _grpc_error_response(e)
     return {"categories": list(response.categories)}
 
 
@@ -141,22 +183,7 @@ async def detect_anomaly(
             grpc_request, timeout=_grpc_timeout_seconds
         )
     except grpc.aio.AioRpcError as e:
-        if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-            return JSONResponse(
-                status_code=504,
-                content={
-                    "success": False,
-                    "error_message": (
-                        f"Inference did not complete within "
-                        f"{_grpc_timeout_seconds}s -- request timed out "
-                        f"rather than hanging indefinitely."
-                    ),
-                },
-            )
-        return JSONResponse(
-            status_code=502,
-            content={"success": False, "error_message": f"gRPC call failed: {e.details()}"},
-        )
+        return _grpc_error_response(e)
 
     if not grpc_response.success:
         return JSONResponse(
