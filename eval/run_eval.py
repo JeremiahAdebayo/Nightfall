@@ -23,7 +23,7 @@ from eval.dataloader import load_category_test_data
 
 # Reused from train.py's convention rather than duplicated by hand, so
 # the category list can't silently drift between training and eval.
-from train import ALL_MVTEC_CATEGORIES, checkpoint_path
+from scripts.train import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 
 def main():
