@@ -24,6 +24,7 @@
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include "test_image.h"  // defines TEST_IMAGE_BYTES[] and TEST_IMAGE_LEN -- see note below
 
@@ -35,8 +36,18 @@ const char* WIFI_PASSWORD = "";          // Wokwi-GUEST is open, no password
 // exposed via a tunnel (e.g. ngrok) or a public Colab-forwarded URL,
 // put that URL here. localhost will NOT work -- Wokwi's simulated
 // device is not the same machine running your Colab/gateway process.
-const char* GATEWAY_URL = "http://YOUR_GATEWAY_URL:8000/detect";
+//
+// IMPORTANT: ngrok URLs are https:// (TLS), not http://. This sketch
+// uses WiFiClientSecure with setInsecure() (skips certificate
+// validation) to reach it -- acceptable for this MVP/simulation, since
+// we're not handling sensitive data and the goal is proving the
+// connection chain works, not production-grade certificate pinning.
+// A real hardware deployment against a permanent, known server should
+// validate the actual certificate instead of skipping validation.
+const char* GATEWAY_URL = "https://YOUR_NGROK_URL.ngrok-free.app/detect";
 const char* CATEGORY = "bottle";
+
+WiFiClientSecure secureClient;
 
 void setup() {
   Serial.begin(115200);
@@ -65,7 +76,12 @@ void setup() {
 
 void sendDetectionRequest() {
   HTTPClient http;
-  http.begin(GATEWAY_URL);
+
+  // setInsecure() skips certificate validation -- see the GATEWAY_URL
+  // comment above for why that's an acceptable tradeoff for this
+  // MVP/simulation specifically, not a general recommendation.
+  secureClient.setInsecure();
+  http.begin(secureClient, GATEWAY_URL);
 
   // Manually construct a multipart/form-data body -- this matches what
   // the REST gateway's FastAPI endpoint (category: Form, image: File)

@@ -9,42 +9,96 @@ Usage:
         --image-path {MVTEC_DIR}/bottle/test/broken_large/001.png \
         --output serving/test_image.h
 
-Wokwi/ESP32 heap constraint, worth knowing before picking an image: a
-full-size PNG (tens of KB) embedded as a byte array is fine for flash
-storage but will consume real heap when malloc'd into the HTTP request
-body (see esp32_client.ino's sendDetectionRequest). Simulated ESP32
-boards in Wokwi have limited heap (typically ~200-300KB usable), so an
-oversized image could cause the malloc in the sketch to fail. This
-script warns if the resulting byte array is large enough to be a
-concern, rather than silently producing a header that crashes on
-upload.
+Resize step, and why it's necessary, not just an optimization: MVTec's
+raw source images are large (e.g. 900x900, ~500KB as PNG) -- far bigger
+than the 224x224 crop_size ImagePreprocessor actually feeds the model.
+Embedding the raw 500KB file overflows the ESP32's flash partition
+outright ("Sketch too big" at compile time, a hard failure, confirmed
+empirically), not just a soft heap-pressure risk. This script resizes
+to --target-size (default 224, matching PreprocessConfig.crop_size)
+before embedding, which is not a lossy shortcut -- the model would
+resize the image to this same resolution internally regardless, so the
+server-side model sees equivalent input either way. We save as JPEG
+(quality configurable) rather than PNG for the embedded copy, since
+JPEG compresses photographic content far better than PNG for this
+byte-budget-constrained use case; the original PNG file is never
+modified, only this specific embedded copy.
+
+Hard flash-size limit: unlike the original heap-only warning, exceeding
+MAX_EMBEDDED_BYTES now raises an error and refuses to generate the
+header, rather than only printing a warning -- an oversized embed is a
+guaranteed compile failure on real Wokwi/ESP32 flash, not a "might be a
+problem" situation, so failing loudly here is more useful than letting
+someone discover it only after a failed Wokwi build.
 """
 
 from __future__ import annotations
 
 import argparse
+import io
 from pathlib import Path
 
-HEAP_WARNING_THRESHOLD_BYTES = 100_000  # conservative; real ESP32 heap budgets vary by board/config
+from PIL import Image
+
+# Conservative ceiling for the embedded byte array itself. ESP32's flash
+# partition available for user sketch code+data varies by board/
+# partition scheme, but common Arduino-ESP32 defaults leave roughly
+# 1-1.3MB for the app -- and that has to cover WiFi/TLS/HTTP libraries
+# too, which are themselves substantial. 50KB is a conservative budget
+# for the embedded image specifically, confirmed empirically to compile
+# successfully where 500KB did not.
+MAX_EMBEDDED_BYTES = 50_000
+HEAP_WARNING_THRESHOLD_BYTES = 20_000  # separate, softer warning for runtime malloc in sendDetectionRequest
 
 
-def generate_header(image_path: Path, output_path: Path, var_name: str = "TEST_IMAGE") -> None:
-    image_bytes = image_path.read_bytes()
+def resize_and_compress(image_path: Path, target_size: int, jpeg_quality: int) -> bytes:
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize((target_size, target_size), Image.BILINEAR)
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=jpeg_quality)
+    return buf.getvalue()
+
+
+def generate_header(
+    image_path: Path,
+    output_path: Path,
+    target_size: int,
+    jpeg_quality: int,
+    var_name: str = "TEST_IMAGE",
+) -> None:
+    original_size = image_path.stat().st_size
+    image_bytes = resize_and_compress(image_path, target_size, jpeg_quality)
     size = len(image_bytes)
 
-    if size > HEAP_WARNING_THRESHOLD_BYTES:
+    print(
+        f"Original: {original_size:,} bytes -> resized+JPEG "
+        f"({target_size}x{target_size}, quality={jpeg_quality}): {size:,} bytes"
+    )
+
+    if size > MAX_EMBEDDED_BYTES:
+        raise ValueError(
+            f"Resulting image is {size:,} bytes, exceeding the "
+            f"{MAX_EMBEDDED_BYTES:,} byte limit known to compile "
+            f"successfully on Wokwi/ESP32. Reduce --jpeg-quality or "
+            f"--target-size and try again. Do NOT proceed with an "
+            f"oversized embed -- this WILL fail to compile as a "
+            f"'Sketch too big' flash overflow, confirmed empirically."
+        )
+    elif size > HEAP_WARNING_THRESHOLD_BYTES:
         print(
-            f"WARNING: {image_path.name} is {size:,} bytes. Wokwi's simulated "
-            f"ESP32 typically has limited usable heap; embedding + malloc'ing "
-            f"an image this large in sendDetectionRequest() may fail. Consider "
-            f"a smaller/more compressed test image if the sketch reports a "
-            f"malloc failure."
+            f"WARNING: {size:,} bytes is under the flash limit but large "
+            f"enough that malloc'ing it into the HTTP request body (see "
+            f"esp32_client.ino's sendDetectionRequest) could be tight on "
+            f"Wokwi's simulated heap. Watch for a 'malloc failed' message "
+            f"in the Serial Monitor; reduce --jpeg-quality further if so."
         )
 
     lines = [
         "// Auto-generated by scripts/generate_test_image_header.py",
-        f"// Source image: {image_path}",
-        f"// Size: {size} bytes",
+        f"// Source image: {image_path} (original {original_size:,} bytes)",
+        f"// Resized to {target_size}x{target_size}, JPEG quality={jpeg_quality}",
+        f"// Embedded size: {size} bytes",
         "#pragma once",
         "#include <stdint.h>",
         "",
@@ -67,12 +121,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image-path", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--target-size", type=int, default=224,
+        help="Resize to this square resolution before embedding -- matches "
+             "PreprocessConfig.crop_size, since the model would resize to "
+             "this anyway.",
+    )
+    parser.add_argument(
+        "--jpeg-quality", type=int, default=70,
+        help="JPEG quality (1-95). Lower = smaller file, more compression "
+             "artifacts. 70 is a reasonable default; reduce if still too "
+             "large for the flash budget.",
+    )
     args = parser.parse_args()
 
     if not args.image_path.exists():
         raise FileNotFoundError(f"No image found at {args.image_path}")
 
-    generate_header(args.image_path, args.output)
+    generate_header(args.image_path, args.output, args.target_size, args.jpeg_quality)
 
 
 if __name__ == "__main__":
