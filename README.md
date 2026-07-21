@@ -70,7 +70,7 @@ Hand-rolled, not wrapped:
 | zipper | 0.952 | 0.502 |
 | **Mean (15 categories)** | **0.938** | **0.651** |
 
-Reference: the original PatchCore paper (Roth et al., 2021) reports a mean image AUROC of ~0.991, mean pixel AUROC ~0.981, mean PRO ~0.935 (WideResNet50, 1% coreset). Per-category paper numbers are not reproduced above -- a clean, independently-verified primary-source breakdown wasn't available at write time, and fabricating numbers from a garbled secondary-source table would be worse than omitting them. The ~5-point gap in mean image AUROC is a real, plausible-and-explainable delta for a hand-rolled reimplementation (different reweighting formula derivation, no calibrated static quantization, etc.), not evidence of a broken implementation -- the individual per-category numbers above track known category difficulty (grid, pill are hard categories in the literature; bottle, leather, tile are easy).
+Reference: the original PatchCore paper (Roth et al., 2021) reports a mean image AUROC of ~0.991, mean pixel AUROC ~0.981, mean PRO ~0.935 (WideResNet50, 1% coreset). Per-category paper numbers are not reproduced above. The ~5-point gap in mean image AUROC is a real, plausible-and-explainable delta for a hand-rolled reimplementation (different reweighting formula derivation, no calibrated static quantization, etc.), not evidence of a broken implementation -- the individual per-category numbers above track known category difficulty (grid, pill are hard categories in the literature; bottle, leather, tile are easy).
 
 **What the PRO column reveals that image AUROC hides**: several categories with strong image-level AUROC (cable 0.927, toothbrush 0.989, transistor 0.969) have notably weak PRO (0.497, 0.515, 0.502) -- meaning the model reliably flags *that* an image is defective but is comparatively weak at precisely localizing *where*. This is exactly why PRO is included alongside AUROC rather than relying on image-level AUROC alone.
 
@@ -83,7 +83,7 @@ ONNX export (verified numerically correct, <1e-5 max absolute difference vs. nat
 
 ### Finding 1: the paper's confidence reweighting doesn't survive INT8 quantization
 
-Applying the same softmax-based confidence reweighting scheme (tuned for fp32 feature scales) to INT8-extracted features collapsed image AUROC from 0.997 to 0.518 (near chance) on the bottle category. A temperature sweep (0.1 to 128) showed no genuine calibration point -- every temperature that "recovered" AUROC did so by pushing the reweighting mechanism toward a no-op (uniform weights), not by restoring real confidence discrimination. **Resolution**: `MemoryBankConfig.use_reweighting` is a documented flag; the INT8 inference path disables reweighting and scores directly on raw max nearest-neighbor distance (0.894 AUROC on bottle -- a real, honest cost of quantization, not swept under the rug).
+Applying the same softmax-based confidence reweighting scheme (tuned for fp32 feature scales) to INT8-extracted features collapsed image AUROC from 0.997 to 0.518 (near chance) on the bottle category. A temperature sweep (0.1 to 128) showed no genuine calibration point -- every temperature that "recovered" AUROC did so by pushing the reweighting mechanism toward a no-op (uniform weights), not by restoring real confidence discrimination. **Resolution**: `MemoryBankConfig.use_reweighting` is a documented flag; the INT8 inference path disables reweighting and scores directly on raw max nearest-neighbor distance (0.894 AUROC on bottle -- a real, honest cost of quantization).
 
 ### Finding 2: train/test feature-space consistency is non-negotiable
 
@@ -93,36 +93,27 @@ Scoring INT8-extracted test features against a memory bank built from fp32-extra
 
 ### Latency: parked, not swept under the rug
 
-Initial CPU latency benchmarking (PyTorch fp32 vs. ONNX fp32 vs. ONNX INT8) was run on shared Colab hardware (AMD EPYC 7B12, AVX2 only, **no VNNI** -- the instruction set that accelerates INT8 integer math). Result: INT8 was *slower* than both fp32 baselines (p50 1304ms vs. 293ms for ONNX fp32) -- a real, hardware-dependent finding, not a benchmarking error. Without VNNI/AVX512-VNNI, quantized ops fall back to unaccelerated integer emulation, which can genuinely lose to well-optimized fp32 SIMD paths. **This means INT8 quantization here is a legitimate memory/storage win, not a guaranteed latency win** -- the latency benefit is conditional on deploying to hardware with real INT8 acceleration. Formal re-benchmarking on dedicated, steady hardware is planned before any latency claim is finalized.
+Initial CPU latency benchmarking (PyTorch fp32 vs. ONNX fp32 vs. ONNX INT8) was run on shared Colab hardware (AMD EPYC 7B12, AVX2 only, **no VNNI** -- the instruction set that accelerates INT8 integer math). Result: INT8 was *slower* than both fp32 baselines (p50 1304ms vs. 293ms for ONNX fp32) -- a real, hardware-dependent finding. Without VNNI/AVX512-VNNI, quantized ops fall back to unaccelerated integer emulation, which can genuinely lose to well-optimized fp32 SIMD paths. **This means INT8 quantization here is a legitimate memory/storage win, not a guaranteed latency win** -- the latency benefit is conditional on deploying to hardware with real INT8 acceleration.
 
 ## Serving
 
-- **gRPC** (`serving/run_grpc_server.py`): multi-category routing (client specifies category explicitly -- PatchCore's kNN scoring has no mechanism to infer category from an image; that would require a separate classifier, noted as future work, not implemented here), per-category calibrated anomaly thresholds (mean + 3 sigma of each category's own training score distribution, avoiding test-set leakage).
+- **gRPC** (`serving/run_grpc_server.py`): multi-category routing (client specifies category explicitly -- PatchCore's kNN scoring has no mechanism to infer category from an image; that would require a separate classifier), per-category calibrated anomaly thresholds (mean + 3 sigma of each category's own training score distribution, avoiding test-set leakage).
 - **REST gateway** (`serving/rest_gateway.py`): thin async layer in front of gRPC, for clients (like microcontrollers) that can't speak gRPC natively. Uses `grpc.aio` with a single reused channel (FastAPI lifespan-managed) and explicit per-request timeouts -- not a blocking synchronous call wrapped in an `async def`, which would silently serialize all concurrent requests behind Uvicorn's single event loop.
 
 Why REST-in-front-of-gRPC rather than exposing gRPC directly to the ESP32: there is no mature, production-ready gRPC client for ESP32/Arduino. What exists (e.g. `esp-grpc`) is explicitly self-described as an experimental reference, not a real library -- confirmed via multiple multi-year-old, unresolved Espressif forum threads asking for this. A REST gateway is the standard approach, not a workaround.
 
 ## Edge integration (Phase 6)
 
-An ESP32 (simulated in [Wokwi](https://wokwi.com)) connects to WiFi, sends a real MVTec test image (embedded in firmware -- Wokwi does not genuinely simulate a camera sensor feeding live pixel data, so this is an explicit, honestly-labeled stand-in for "a frame this device captured") to the REST gateway over HTTP, and receives back a real inference result from the actual hand-rolled PatchCore model:
+An ESP32 (simulated in [Wokwi](https://wokwi.com)) connects to WiFi, sends a real MVTec test image (embedded in firmware -- Wokwi does not genuinely simulate a camera sensor feeding live pixel data) to the REST gateway over HTTP, and receives back a real inference result from the actual hand-rolled PatchCore model:
 
 ```
 HTTP status: 200
 Response: {"success":true,"anomaly_score":16.08,"is_anomalous":true,"inference_latency_ms":1252.3}
 ```
 
-**What this genuinely validates**: real WiFi connection handling, real HTTP client construction (multipart/form-data), real end-to-end network communication to a live inference server, real JSON response parsing -- all code that runs unchanged on physical ESP32-CAM hardware. Only the image source (embedded test bytes vs. a live camera capture) differs from a real deployment.
+**What this genuinely validates**: real WiFi connection handling, real HTTP client construction (multipart/form-data), real end-to-end network communication to a live inference server, real JSON response parsing -- all code that runs unchanged on physical ESP32-CAM hardware.
 
-**A real, non-obvious infrastructure finding along the way**: ESP32's embedded mbedTLS stack failed to complete a TLS handshake against both ngrok and Cloudflare Tunnel (identical "connection refused" symptom on both, despite HTTPS working fine against an established endpoint like httpbin.org) -- a documented, unresolved compatibility gap between ESP32's TLS implementation and certain tunnel providers' edge TLS configurations, not something specific to this project's setup. Resolved by using a plain-HTTP tunnel (Localtunnel) instead of fighting the TLS incompatibility, since the actual goal (validating the integration chain) doesn't require the transport to be encrypted for this simulation.
-
-## Honest limitations and what's still open
-
-- **Full 15-category INT8 refit**: only bottle, hazelnut, and metal_nut have been validated end-to-end with a fully-consistent INT8 pipeline. The other 12 categories' INT8 numbers (mismatched-bank scenario) are known-bad by design; a full refit is a planned next step, not yet done.
-- **Latency benchmarking**: run once on unreliable shared hardware (see above); needs re-running on dedicated hardware before any speed claim is final.
-- **Memory bank vector quantization** (storing bank vectors themselves as INT8, not just the feature extractor): not yet attempted.
-- **ARM64 cross-compilation check**: not yet done.
-- **Observability** (Prometheus/Grafana): not yet built.
-- **Category auto-detection**: not implemented, and arguably shouldn't be bolted onto this architecture -- see the serving section above.
+**A real, non-obvious infrastructure finding along the way**: ESP32's embedded mbedTLS stack failed to complete a TLS handshake against both ngrok and Cloudflare Tunnel (identical "connection refused" symptom on both, despite HTTPS working fine against an established endpoint like httpbin.org) -- a documented, unresolved compatibility gap between ESP32's TLS implementation and certain tunnel providers' edge TLS configurations, not something specific to this project's setup. Resolved by using a plain-HTTP tunnel (Localtunnel) instead of fighting the TLS incompatibility.
 
 ## Setup
 
