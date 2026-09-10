@@ -1,13 +1,13 @@
 """
 Converts a real MVTec test image into a C header file (test_image.h)
 that the ESP32 Wokwi sketch (esp32_client.ino) embeds directly into
-firmware, as an explicit stand-in for "an image this device captured"
+firmware (write it into the sketch folder, next to the .ino, so the include resolves), as an explicit stand-in for "an image this device captured"
 (see esp32_client.ino's docstring for why this isn't a live camera feed).
 
 Usage:
-    !python scripts/generate_test_image_header.py \
+    python scripts/generate_test_image_header.py \
         --image-path {MVTEC_DIR}/bottle/test/broken_large/001.png \
-        --output serving/test_image.h
+        --output nightfall/serving/esp32_client/test_image.h
 
 Resize step, and why it's necessary, not just an optimization: MVTec's
 raw source images are large (e.g. 900x900, ~500KB as PNG) -- far bigger

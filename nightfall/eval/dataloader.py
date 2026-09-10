@@ -2,7 +2,7 @@
 Loads MVTec AD test-set images and ground-truth masks into the
 CategoryTestData shape EvalHarness expects.
 
-Directory convention (see train_all_categories.py's docstring):
+Directory convention (see nightfall/data/mvtec.py):
     <data_root>/<category>/test/<defect_type>/*.png
     <data_root>/<category>/ground_truth/<defect_type>/*_mask.png
 
@@ -14,7 +14,7 @@ contribute.
 
 Mask/image pairing is by matching numeric index within a defect-type
 folder (e.g. test/broken_large/001.png <-> ground_truth/broken_large/001_mask.png),
-per the same convention train_all_categories.py's HuggingFace fallback
+per the same convention nightfall.data.mvtec's HuggingFace fallback
 writes. This was spot-checked manually against several real image/mask
 pairs before relying on it here (see project notes) -- the pairing is
 NOT verified programmatically at load time, so a future change to
@@ -31,8 +31,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from core.preprocessing import ImagePreprocessor
-from eval.harness import CategoryTestData
+from nightfall.core.preprocessing import ImagePreprocessor
+from nightfall.eval.harness import CategoryTestData
 
 
 def load_category_test_data(

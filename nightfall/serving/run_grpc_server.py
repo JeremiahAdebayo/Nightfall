@@ -6,17 +6,22 @@ nightfall.proto (this is a one-time step, or repeated whenever the .proto
 changes):
 
     python -m grpc_tools.protoc \
-        -I serving/proto \
-        --python_out=serving \
-        --grpc_python_out=serving \
-        serving/proto/nightfall.proto
+        -I nightfall/serving/proto \
+        --python_out=nightfall/serving \
+        --grpc_python_out=nightfall/serving \
+        nightfall/serving/proto/nightfall.proto
 
-This generates serving/nightfall_pb2.py and serving/nightfall_pb2_grpc.py,
+This generates nightfall/serving/nightfall_pb2.py and nightfall/serving/nightfall_pb2_grpc.py,
 which this server imports. These generated files are NOT hand-written and
-should be regenerated from the .proto, not edited directly.
+should be regenerated from the .proto, not edited directly -- with ONE
+exception, re-applied after each regeneration: the generated
+nightfall_pb2_grpc.py imports its sibling as a bare `import nightfall_pb2`,
+which only works when nightfall/serving/ is on sys.path, so that line is
+wrapped in a try/except that prefers `from nightfall.serving import
+nightfall_pb2` (see nightfall_pb2_grpc.py).
 
 Usage:
-    python scripts/run_grpc_server.py \
+    python nightfall/serving/run_grpc_server.py \
         --checkpoint-dir {DRIVE_ROOT}/checkpoints \
         --port 50051
 """
@@ -30,26 +35,28 @@ import time
 from concurrent import futures
 from pathlib import Path
 
-# Ensure the repo root (parent of this file's `serving/` directory) is on
-# sys.path, regardless of the working directory this script is invoked
-# from. Without this, `from scripts.train import ...` below fails when
-# run as `python serving/run_grpc_server.py` from the repo root, since
-# Python adds the SCRIPT's own directory (serving/) to sys.path by
-# default, not the repo root -- a different situation from scripts/
-# themselves, which are invoked directly and therefore have the repo
-# root as their natural working directory.
+# This file is inside the `nightfall` package, so importing it as a script
+# (`python nightfall/serving/run_grpc_server.py`) puts nightfall/serving/ on
+# sys.path but NOT the repo root -- hence the repo-root insert below, plus the
+# serving-dir insert so the generated `nightfall_pb2`/`nightfall_pb2_grpc`
+# stubs (which import each other by bare module name) resolve. Both go away if
+# this is ever packaged as `python -m nightfall.serving.run_grpc_server` with
+# the stubs imported relatively.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
+_SERVING_DIR = Path(__file__).resolve().parent
+if str(_SERVING_DIR) not in sys.path:
+    sys.path.insert(0, str(_SERVING_DIR))
 
 import grpc
 import numpy as np
 import torch
 from PIL import Image
 
-from core.patchcore import PatchCore
-from core.memory_bank import MemoryBank
-from scripts.train import ALL_MVTEC_CATEGORIES, checkpoint_path
+from nightfall.core.patchcore import PatchCore
+from nightfall.core.memory_bank import MemoryBank
+from nightfall.config import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 import nightfall_pb2
 import nightfall_pb2_grpc
@@ -58,7 +65,7 @@ import nightfall_pb2_grpc
 class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
     """
     Implements the NightfallInference gRPC service defined in
-    serving/proto/nightfall.proto.
+    nightfall/serving/proto/nightfall.proto.
 
     Loads all available category checkpoints once at startup, keeping
     them in memory for the server's lifetime -- avoids reloading a

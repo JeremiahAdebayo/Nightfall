@@ -36,13 +36,13 @@ instead of hanging, which matters for anything claiming to be
 production-grade, not just a demo that only has to work once.
 
 Usage:
-    !python serving/rest_gateway.py \
+    python nightfall/serving/rest_gateway.py \
         --checkpoint-dir {DRIVE_ROOT}/checkpoints \
         --thresholds-path {DRIVE_ROOT}/checkpoints/thresholds.json \
         --grpc-target localhost:50051 \
         --port 8000
 
-Requires the gRPC server (serving/run_grpc_server.py) to already be
+Requires the gRPC server (nightfall/serving/run_grpc_server.py) to already be
 running and reachable at --grpc-target.
 """
 

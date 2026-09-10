@@ -12,34 +12,62 @@ Several real bugs were found and fixed during this project, not glossed over —
 
 ## Architecture
 
+The importable package is `nightfall/`; `scripts/` holds thin CLI entry
+points that wire arguments to package code.
+
 ```
-core/
-├── feature_extractor.py   # WideResNet50 + hooks, locally-aware pooling, multi-scale fusion
-├── coreset.py              # Greedy k-center (farthest point sampling) coreset selection
-├── memory_bank.py          # kNN scoring, softmax confidence reweighting, pixel heatmaps
-├── patchcore.py             # Multi-category orchestrator
-├── preprocessing.py        # ImageNet-normalized resize/crop pipeline
-└── onnx_feature_extractor.py  # ONNX Runtime-backed extractor (drop-in for the above)
+nightfall/
+├── config.py                # Canonical MVTec category list + checkpoint path convention
+├── core/
+│   ├── feature_extractor.py   # WideResNet50 + hooks, locally-aware pooling, multi-scale fusion
+│   ├── coreset.py             # Greedy k-center (farthest point sampling) coreset selection
+│   ├── memory_bank.py         # kNN scoring, optional softmax confidence reweighting, pixel heatmaps
+│   ├── patchcore.py           # Multi-category orchestrator
+│   ├── preprocessing.py       # ImageNet-normalized resize/crop pipeline
+│   └── onnx_feature_extractor.py  # ONNX Runtime-backed extractor (drop-in for the above)
+├── data/
+│   └── mvtec.py               # MVTec download (anomalib, HuggingFace mirror fallback)
+├── eval/
+│   ├── metrics.py             # Image AUROC, pixel AUROC, PRO (Per-Region Overlap)
+│   ├── harness.py             # Per-category evaluation + comparison tables
+│   └── dataloader.py          # MVTec test/ground-truth loading
+└── serving/
+    ├── proto/nightfall.proto  # gRPC service definition
+    ├── run_grpc_server.py     # Multi-category gRPC inference server
+    ├── rest_gateway.py        # Async REST/HTTP gateway in front of gRPC (grpc.aio)
+    └── esp32_client/esp32_client.ino  # ESP32 firmware (Wokwi-simulated)
 
-eval/
-├── metrics.py               # Image AUROC, pixel AUROC, PRO (Per-Region Overlap)
-├── harness.py               # Per-category evaluation + comparison tables
-└── dataloader.py            # MVTec test/ground-truth loading
-
-scripts/
-├── train.py                 # Resumable, checkpointed training across all 15 categories
-├── run_eval.py               # Full evaluation harness (fp32)
-├── run_eval_int8.py           # INT8 accuracy validation
+scripts/                       # CLI entry points
+├── train.py                   # Resumable, checkpointed training across all 15 categories
+├── run_eval.py                # Full evaluation harness (fp32)
+├── run_eval_int8.py           # INT8 accuracy validation (mismatched-bank baseline)
 ├── calibrate_thresholds.py    # Per-category anomaly threshold calibration
-├── generate_test_image_header.py  # Converts a real MVTec image into an ESP32-embeddable C header
-└── export_onnx.py / quantize_onnx.py  # ONNX export + INT8 quantization pipeline
+├── export_onnx.py             # ONNX export + numerical verification
+├── quantize_onnx.py           # INT8 dynamic quantization + verification
+├── benchmark_latency.py       # PyTorch fp32 vs ONNX fp32 vs INT8 (CPU)
+└── generate_test_image_header.py  # MVTec image -> ESP32-embeddable C header
 
-serving/
-├── proto/nightfall.proto      # gRPC service definition
-├── run_grpc_server.py          # Multi-category gRPC inference server
-├── rest_gateway.py             # Async REST/HTTP gateway in front of gRPC (grpc.aio)
-└── esp32_client.ino            # ESP32 firmware (Wokwi-simulated), WiFi + HTTP client
+docs/
+└── colab.md                   # Colab walkthrough (the supported path without a local GPU)
 ```
+
+`Nightfall.ipynb` is the original experiment log -- the Colab session where
+the fp32/INT8 findings (reweighting collapse, temperature sweep, quantization
+geometry analysis, train/test-space refit) were actually produced. It is kept
+for provenance, not as the supported entry point; `docs/colab.md` is the
+arranged, current version of those commands.
+
+## Development
+
+```bash
+pip install -e ".[dev,data,serving,quantize]"
+python -m pytest tests            # core + metrics smoke tests (no dataset needed)
+```
+
+`tests/` covers the pieces that are cheap to check without MVTec or a GPU: the
+category/checkpoint conventions, coreset selection size, the fp32-vs-INT8
+reweighting switch, and the metric implementations (including PRO's
+penalty for partially-covered defect regions, which pixel AUROC hides).
 
 ## Core algorithm
 
@@ -97,8 +125,8 @@ Initial CPU latency benchmarking (PyTorch fp32 vs. ONNX fp32 vs. ONNX INT8) was 
 
 ## Serving
 
-- **gRPC** (`serving/run_grpc_server.py`): multi-category routing (client specifies category explicitly -- PatchCore's kNN scoring has no mechanism to infer category from an image; that would require a separate classifier), per-category calibrated anomaly thresholds (mean + 3 sigma of each category's own training score distribution, avoiding test-set leakage).
-- **REST gateway** (`serving/rest_gateway.py`): thin async layer in front of gRPC, for clients (like microcontrollers) that can't speak gRPC natively. Uses `grpc.aio` with a single reused channel (FastAPI lifespan-managed) and explicit per-request timeouts -- not a blocking synchronous call wrapped in an `async def`, which would silently serialize all concurrent requests behind Uvicorn's single event loop.
+- **gRPC** (`nightfall/serving/run_grpc_server.py`): multi-category routing (client specifies category explicitly -- PatchCore's kNN scoring has no mechanism to infer category from an image; that would require a separate classifier), per-category calibrated anomaly thresholds (mean + 3 sigma of each category's own training score distribution, avoiding test-set leakage).
+- **REST gateway** (`nightfall/serving/rest_gateway.py`): thin async layer in front of gRPC, for clients (like microcontrollers) that can't speak gRPC natively. Uses `grpc.aio` with a single reused channel (FastAPI lifespan-managed) and explicit per-request timeouts -- not a blocking synchronous call wrapped in an `async def`, which would silently serialize all concurrent requests behind Uvicorn's single event loop.
 
 Why REST-in-front-of-gRPC rather than exposing gRPC directly to the ESP32: there is no mature, production-ready gRPC client for ESP32/Arduino. What exists (e.g. `esp-grpc`) is explicitly self-described as an experimental reference, not a real library -- confirmed via multiple multi-year-old, unresolved Espressif forum threads asking for this. A REST gateway is the standard approach, not a workaround.
 
@@ -117,11 +145,11 @@ Response: {"success":true,"anomaly_score":16.08,"is_anomalous":true,"inference_l
 
 ## Setup
 
-See `scripts/colab_setup.py` for the full Colab bootstrap (Drive mount, repo clone, dependency install, GPU check). Training data downloads automatically via `anomalib`'s `MVTecAD` datamodule (used purely as a data-fetching utility, not as the modeling library -- the actual algorithm is 100% hand-rolled in `core/`), with a HuggingFace mirror fallback for when the official MVTec endpoint 404s (a known, intermittent issue as of early 2026).
+With a local GPU, train/eval/serve directly with the commands below. Without a local GPU, follow the Colab walkthrough in `docs/colab.md` (Drive mount, repo clone, dependency install, per-phase commands). Training data downloads automatically (Drive mount, repo clone, dependency install, GPU check). Training data downloads automatically via `anomalib`'s `MVTecAD` datamodule (used purely as a data-fetching utility, not as the modeling library -- the actual algorithm is 100% hand-rolled in `nightfall/core/`), with a HuggingFace mirror fallback for when the official MVTec endpoint 404s (a known, intermittent issue as of early 2026).
 
 ```bash
 python scripts/train.py --data-root <mvtec_dir> --output-dir <checkpoint_dir>
 python scripts/run_eval.py --data-root <mvtec_dir> --checkpoint-dir <checkpoint_dir>
 python scripts/calibrate_thresholds.py --data-root <mvtec_dir> --checkpoint-dir <checkpoint_dir> --output <checkpoint_dir>/thresholds.json
-python serving/run_grpc_server.py --checkpoint-dir <checkpoint_dir> --thresholds-path <checkpoint_dir>/thresholds.json
+python nightfall/serving/run_grpc_server.py --checkpoint-dir <checkpoint_dir> --thresholds-path <checkpoint_dir>/thresholds.json
 ```

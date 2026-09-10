@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import torch
 
-from core.patchcore import PatchCore
-from eval.metrics import compute_image_auroc, compute_pixel_auroc, compute_pro_score
+from nightfall.core.patchcore import PatchCore
+from nightfall.eval.metrics import compute_image_auroc, compute_pixel_auroc, compute_pro_score
 
 
 @dataclass

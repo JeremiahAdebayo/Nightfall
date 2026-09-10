@@ -19,7 +19,7 @@ refit is probably unnecessary; if it fails, a full refit becomes the next
 real experiment before concluding INT8 is unusable.
 
 Usage:
-    !python scripts/run_eval_int8.py \
+    python scripts/run_eval_int8.py \
         --data-root {MVTEC_DIR} \
         --checkpoint-dir {DRIVE_ROOT}/checkpoints \
         --onnx-path {DRIVE_ROOT}/onnx/feature_extractor_int8.onnx
@@ -32,12 +32,14 @@ from pathlib import Path
 
 import torch
 
-from core.patchcore import PatchCore
-from core.memory_bank import MemoryBank
-from core.onnx_feature_extractor import OnnxFeatureExtractor
-from eval.harness import EvalHarness
-from eval.dataloader import load_category_test_data
-from train import ALL_MVTEC_CATEGORIES, checkpoint_path
+import _bootstrap  # noqa: F401 -- puts repo root on sys.path; see scripts/_bootstrap.py
+
+from nightfall.core.patchcore import PatchCore
+from nightfall.core.memory_bank import MemoryBank
+from nightfall.core.onnx_feature_extractor import OnnxFeatureExtractor
+from nightfall.eval.harness import EvalHarness
+from nightfall.eval.dataloader import load_category_test_data
+from nightfall.config import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 
 def main():

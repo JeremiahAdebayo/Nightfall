@@ -15,7 +15,7 @@ Reports p50/p95/p99 latency per single-image inference, plus throughput
 (images/sec), across a fixed number of warm-up + measured runs.
 
 Usage:
-    !python scripts/benchmark_latency.py --onnx-dir {DRIVE_ROOT}/onnx
+    python scripts/benchmark_latency.py --onnx-dir {DRIVE_ROOT}/onnx
 """
 
 from __future__ import annotations
@@ -27,7 +27,9 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from core.feature_extractor import PatchFeatureExtractor
+import _bootstrap  # noqa: F401 -- puts repo root on sys.path; see scripts/_bootstrap.py
+
+from nightfall.core.feature_extractor import PatchFeatureExtractor
 
 
 def percentile_stats(latencies_ms: list[float]) -> dict:

@@ -37,6 +37,12 @@ import torch.nn.functional as F
 @dataclass
 class MemoryBankConfig:
     reweight_k: int = 3  # neighbors used for the reweighting factor
+    # Confidence reweighting (softmax over top-k bank distances) tuned for
+    # fp32 feature scales. Collapses image AUROC to near-chance when test
+    # features come from the INT8-quantized extractor -- disable it on the
+    # quantized path and score on raw max nearest-neighbor distance instead
+    # (empirically verified; see README "Quantization" section).
+    use_reweighting: bool = True
     gaussian_blur_sigma: float = 4.0
     gaussian_blur_kernel: int = 9
 
@@ -90,25 +96,25 @@ class MemoryBank:
         dists = torch.cdist(patch_features, bank)  # (B*H*W, M)
         nn_dists = dists.min(dim=1).values  # (B*H*W,)
 
-        # Reweighting factor, per the PatchCore paper: look at each test
-        # patch's top-(reweight_k) nearest bank distances as a group.
-        topk_test_to_bank = dists.topk(
-            self.config.reweight_k, dim=1, largest=False
-        ).values  # (B*H*W, k), sorted ascending; [:, 0] == nn_dists
+        if self.config.use_reweighting:
+            # Reweighting factor, per the PatchCore paper: look at each test
+            # patch's top-(reweight_k) nearest bank distances as a group.
+            topk_test_to_bank = dists.topk(
+                self.config.reweight_k, dim=1, largest=False
+            ).values  # (B*H*W, k), sorted ascending; [:, 0] == nn_dists
 
-        # softmax_weights[:, 0] is large (near 1) when the top-1 neighbor
-        # clearly dominates -- a confident match. It's small (near 1/k)
-        # when the k candidates are near-equidistant -- an ambiguous match.
-        # We want confident matches to *preserve* the raw distance signal
-        # (weight -> 1) and ambiguous matches to be discounted toward 0,
-        # since an ambiguous match against a sparse/contested memory-bank
-        # region is weaker evidence of anomaly than a confident one.
-        softmax_weights = torch.softmax(-topk_test_to_bank, dim=1)  # (B*H*W, k)
-        weight = softmax_weights[:, 0]  # confidence in the top-1 match
+            # softmax_weights[:, 0] is large (near 1) when the top-1 neighbor
+            # clearly dominates -- a confident match. It's small (near 1/k)
+            # when the k candidates are near-equidistant -- an ambiguous match.
+            # We want confident matches to *preserve* the raw distance signal
+            # (weight -> 1) and ambiguous matches to be discounted toward 0.
+            softmax_weights = torch.softmax(-topk_test_to_bank, dim=1)  # (B*H*W, k)
+            weight = softmax_weights[:, 0]  # confidence in the top-1 match
 
-        weighted_dists = weight * nn_dists
-
-        weighted_dists = weighted_dists.view(b, h * w)
+            weighted_dists = (weight * nn_dists).view(b, h * w)
+        else:
+            # Raw max nearest-neighbor distance (the INT8-quantized path).
+            weighted_dists = nn_dists.view(b, h * w)
         raw_dists = nn_dists.view(b, h, w)
 
         image_score = weighted_dists.max(dim=1).values  # (B,)

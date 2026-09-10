@@ -3,7 +3,10 @@
 import grpc
 import warnings
 
-import nightfall_pb2 as nightfall__pb2
+try:  # installed/importable as part of the `nightfall` package
+    from nightfall.serving import nightfall_pb2 as nightfall__pb2
+except ImportError:  # regenerated stub's bare sibling import (script-mode path)
+    import nightfall_pb2 as nightfall__pb2
 
 GRPC_GENERATED_VERSION = '1.82.1'
 GRPC_VERSION = grpc.__version__

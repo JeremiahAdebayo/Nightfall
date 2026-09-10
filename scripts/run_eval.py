@@ -4,7 +4,7 @@ checkpoint, runs image AUROC / pixel AUROC / PRO against real MVTec test
 data, and prints a results table.
 
 Usage (Colab):
-    !python scripts/run_eval.py \
+    python scripts/run_eval.py \
         --data-root {MVTEC_DIR} \
         --checkpoint-dir {DRIVE_ROOT}/checkpoints
 """
@@ -16,14 +16,16 @@ from pathlib import Path
 
 import torch
 
-from core.patchcore import PatchCore
-from core.memory_bank import MemoryBank
-from eval.harness import EvalHarness
-from eval.dataloader import load_category_test_data
+import _bootstrap  # noqa: F401 -- puts repo root on sys.path; see scripts/_bootstrap.py
+
+from nightfall.core.patchcore import PatchCore
+from nightfall.core.memory_bank import MemoryBank
+from nightfall.eval.harness import EvalHarness
+from nightfall.eval.dataloader import load_category_test_data
 
 # Reused from train.py's convention rather than duplicated by hand, so
 # the category list can't silently drift between training and eval.
-from scripts.train import ALL_MVTEC_CATEGORIES, checkpoint_path
+from nightfall.config import ALL_MVTEC_CATEGORIES, checkpoint_path
 
 
 def main():

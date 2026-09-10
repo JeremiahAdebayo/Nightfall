@@ -24,7 +24,7 @@
  */
 
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
+#include <WiFiClient.h>
 #include <HTTPClient.h>
 #include "test_image.h"  // defines TEST_IMAGE_BYTES[] and TEST_IMAGE_LEN -- see note below
 
@@ -37,17 +37,22 @@ const char* WIFI_PASSWORD = "";          // Wokwi-GUEST is open, no password
 // put that URL here. localhost will NOT work -- Wokwi's simulated
 // device is not the same machine running your Colab/gateway process.
 //
-// IMPORTANT: ngrok URLs are https:// (TLS), not http://. This sketch
-// uses WiFiClientSecure with setInsecure() (skips certificate
-// validation) to reach it -- acceptable for this MVP/simulation, since
-// we're not handling sensitive data and the goal is proving the
-// connection chain works, not production-grade certificate pinning.
-// A real hardware deployment against a permanent, known server should
-// validate the actual certificate instead of skipping validation.
-const char* GATEWAY_URL = "https://YOUR_NGROK_URL.ngrok-free.app/detect";
+// IMPORTANT -- use a plain http:// URL, not https://. ESP32's embedded
+// mbedTLS stack fails the TLS handshake against both ngrok and Cloudflare
+// Tunnel with an identical "connection refused" symptom (both tried;
+// HTTPS itself works fine against an established endpoint like
+// httpbin.org), so this project reaches the gateway through a plain-HTTP
+// localtunnel endpoint -- see docs/colab.md step 7 for the tunnel
+// commands. localtunnel also serves a "click to continue" interstitial
+// for browsers, which the bypass-tunnel-reminder header below skips.
+//
+// If you deploy against a real TLS endpoint ESP32 can handshake with,
+// switch back to WiFiClientSecure and validate the actual certificate
+// rather than skipping certificate validation.
+const char* GATEWAY_URL = "http://YOUR-HOST-HERE.loca.lt/detect";
 const char* CATEGORY = "bottle";
 
-WiFiClientSecure secureClient;
+WiFiClient client;
 
 void setup() {
   Serial.begin(115200);
@@ -77,11 +82,10 @@ void setup() {
 void sendDetectionRequest() {
   HTTPClient http;
 
-  // setInsecure() skips certificate validation -- see the GATEWAY_URL
-  // comment above for why that's an acceptable tradeoff for this
-  // MVP/simulation specifically, not a general recommendation.
-  secureClient.setInsecure();
-  http.begin(secureClient, GATEWAY_URL);
+  // Plain HTTP, deliberately: see the GATEWAY_URL comment above for the
+  // ESP32 TLS-handshake finding this works around.
+  http.begin(client, GATEWAY_URL);
+  http.addHeader("bypass-tunnel-reminder", "true");
 
   // Manually construct a multipart/form-data body -- this matches what
   // the REST gateway's FastAPI endpoint (category: Form, image: File)
