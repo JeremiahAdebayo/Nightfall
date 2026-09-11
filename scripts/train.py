@@ -122,7 +122,11 @@ def main():
         if already_trained(args.output_dir, category):
             print(f"[skip] {category} already trained (checkpoint found)")
             bank = MemoryBank(model.bank_config)
-            bank.fit(torch.load(checkpoint_path(args.output_dir, category)))
+            bank.fit(
+                torch.load(
+                    checkpoint_path(args.output_dir, category), weights_only=True
+                )
+            )
             model.banks[category] = bank
             continue
 

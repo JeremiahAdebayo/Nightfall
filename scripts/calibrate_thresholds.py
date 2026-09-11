@@ -85,7 +85,7 @@ def main():
             continue
 
         bank = MemoryBank(model.bank_config)
-        bank.fit(torch.load(ckpt_path))
+        bank.fit(torch.load(ckpt_path, weights_only=True))
         model.banks[category] = bank
 
         stats = calibrate_category(model, category, args.data_root)

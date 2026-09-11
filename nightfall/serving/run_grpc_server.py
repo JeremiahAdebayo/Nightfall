@@ -100,7 +100,7 @@ class NightfallServicer(nightfall_pb2_grpc.NightfallInferenceServicer):
             if not ckpt_path.exists():
                 continue
             bank = MemoryBank(self.model.bank_config)
-            bank.fit(torch.load(ckpt_path))
+            bank.fit(torch.load(ckpt_path, weights_only=True))
             self.model.banks[category] = bank
             loaded.append(category)
 

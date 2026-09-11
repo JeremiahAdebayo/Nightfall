@@ -48,7 +48,7 @@ def main():
             continue
 
         bank = MemoryBank(model.bank_config)
-        bank.fit(torch.load(ckpt_path))
+        bank.fit(torch.load(ckpt_path, weights_only=True))
         model.banks[category] = bank
 
         print(f"[{category}] loading test data...")
