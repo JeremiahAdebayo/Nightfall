@@ -44,6 +44,7 @@ scripts/                       # CLI entry points
 ├── calibrate_thresholds.py    # Per-category anomaly threshold calibration
 ├── export_onnx.py             # ONNX export + numerical verification
 ├── quantize_onnx.py           # INT8 dynamic quantization + verification
+├── quantization_geometry.py    # Notebook cell 19 promoted: does the kNN ranking structure survive INT8?
 ├── benchmark_latency.py       # PyTorch fp32 vs ONNX fp32 vs INT8 (CPU)
 └── generate_test_image_header.py  # MVTec image -> ESP32-embeddable C header
 

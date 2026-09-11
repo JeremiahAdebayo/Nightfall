@@ -17,6 +17,7 @@ __all__ = [
     "CategoryResult",
     "CategoryTestData",
     "load_category_test_data",
+    "geometry_metrics",
 ]
 
 _EXPORTS = {
@@ -27,6 +28,7 @@ _EXPORTS = {
     "CategoryResult": "harness",
     "CategoryTestData": "harness",
     "load_category_test_data": "dataloader",
+    "geometry_metrics": "quantization_geometry",
 }
 
 
