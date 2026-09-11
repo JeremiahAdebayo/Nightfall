@@ -2,7 +2,11 @@
 
 import torch
 
-from nightfall.config import ALL_MVTEC_CATEGORIES, checkpoint_path
+from nightfall.config import (
+    ALL_MVTEC_CATEGORIES,
+    checkpoint_path,
+    int8_checkpoint_path,
+)
 from nightfall.core.coreset import CoresetConfig, GreedyCoresetSampler
 from nightfall.core.memory_bank import MemoryBank, MemoryBankConfig
 
@@ -15,6 +19,11 @@ def test_category_list_is_canonical():
 def test_checkpoint_path_convention():
     p = checkpoint_path("ckpts", "bottle")
     assert str(p).endswith("bottle_memory_bank.pt")
+
+
+def test_int8_checkpoint_path_convention():
+    p = int8_checkpoint_path("ckpts", "bottle")
+    assert str(p).endswith("bottle_memory_bank_int8.pt")
 
 
 def test_coreset_selects_requested_count():

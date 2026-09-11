@@ -40,7 +40,7 @@ nightfall/
 scripts/                       # CLI entry points
 ├── train.py                   # Resumable, checkpointed training across all 15 categories
 ├── run_eval.py                # Full evaluation harness (fp32)
-├── run_eval_int8.py           # INT8 accuracy validation (mismatched-bank baseline)
+├── run_eval_int8.py           # INT8 accuracy validation (mismatched-bank baseline; --refit-bank for the consistent pipeline)
 ├── calibrate_thresholds.py    # Per-category anomaly threshold calibration
 ├── export_onnx.py             # ONNX export + numerical verification
 ├── quantize_onnx.py           # INT8 dynamic quantization + verification

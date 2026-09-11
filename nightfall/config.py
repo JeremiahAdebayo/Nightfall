@@ -21,3 +21,14 @@ ALL_MVTEC_CATEGORIES = [
 
 def checkpoint_path(output_dir: Path | str, category: str) -> Path:
     return Path(output_dir) / f"{category}_memory_bank.pt"
+
+
+def int8_checkpoint_path(output_dir: Path | str, category: str) -> Path:
+    """
+    Checkpoint for a memory bank refit with the INT8 ONNX extractor
+    (scripts/run_eval_int8.py --refit-bank). Deliberately a separate file
+    from the fp32 bank so the mismatched-bank baseline's checkpoints and
+    the consistent-pipeline refit checkpoints can never overwrite each
+    other.
+    """
+    return Path(output_dir) / f"{category}_memory_bank_int8.pt"

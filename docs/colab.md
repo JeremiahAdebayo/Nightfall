@@ -97,6 +97,25 @@ INT8 accuracy check against the recorded fp32 numbers:
     --onnx-path {DRIVE_ROOT}/onnx/feature_extractor_int8.onnx
 ```
 
+The default run is the mismatched-bank baseline (INT8 test features scored
+against banks built from fp32 train features) -- pessimistic, since the
+feature-space mismatch itself, not quantization, caused most of the
+collapse seen in the notebook. The real experiment is the consistent
+pipeline, which refits each bank with the same INT8 extractor used for
+scoring:
+
+```python
+!python scripts/run_eval_int8.py \
+    --data-root {MVTEC_DIR} \
+    --checkpoint-dir {DRIVE_ROOT}/checkpoints \
+    --onnx-path {DRIVE_ROOT}/onnx/feature_extractor_int8.onnx \
+    --refit-bank --save-refit
+```
+
+`--save-refit` writes each refit bank to
+`<checkpoint-dir>/<category>_memory_bank_int8.pt`; later `--refit-bank`
+runs reload it automatically instead of re-extracting the training set.
+
 Latency benchmark (CPU -- see README for why INT8 needs VNNI hardware to
 actually win):
 
